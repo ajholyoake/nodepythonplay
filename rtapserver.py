@@ -1,5 +1,4 @@
-
-import asyncore
+"""Fake rtap server using zeromq"""
 import socket
 import random
 from operator import itemgetter
@@ -8,6 +7,17 @@ from itertools import ifilter
 import threading
 import time
 import signal
+import sys
+import json
+port = "2377"
+
+import zmq
+zmqcontext = zmq.Context()
+socket = zmqcontext.socket(zmq.PUB)
+connstring = "tcp://*:{port}".format(port=port)
+print connstring
+socket.bind(connstring)
+
 
 input_params = {
         'base_lap_time':100,
@@ -18,9 +28,8 @@ input_params = {
         'offset_start':1,
         'random_effect':0.05}
 
-class DataGenerator(threading.Thread):
-    def __init__(self,params,n_laps_start=10,speed_up=100):
-        threading.Thread.__init__(self)
+class DataGenerator():
+    def __init__(self,params,socket,n_laps_start=10,speed_up=10):
         self.p = params
         self.speed_up = speed_up
         self.n_laps_start = n_laps_start
@@ -29,6 +38,7 @@ class DataGenerator(threading.Thread):
         self.notify = []
         self.history = []
         self.listeners = []
+        self.socket = socket
 
     def generate_laptimes(self):
         car_numbers = range(self.p['n_cars'])
@@ -65,60 +75,17 @@ class DataGenerator(threading.Thread):
             offset = next_lap['session_time']
             virtual_session_time = (time.time() - startedat)*self.speed_up + self.time_offset
             if offset > virtual_session_time:
-               time.sleep(offset - virtual_session_time)
+               time.sleep((offset - virtual_session_time)/self.speed_up)
 
             self.history.append(next_lap)
             self.broadcast(next_lap)
-        print 'Race Finished'
-
-    def register(self,obj):
-        self.listeners.append(obj)
-        for i in self.history:
-            obj.send(str(i)+'\n')
+        self.broadcast('{"finished":true}')
 
     def broadcast(self,obj):
-        for l in self.listeners:
-            l.send(str(obj)+'\n')
-
-class Handler(asyncore.dispatcher_with_send):
-
-    def __init__(self,sock,dg):
-        asyncore.dispatcher_with_send.__init__(self,sock)
-        dg.register(self) 
-    #def handle_read(self):
-
-        #First we send history
+        print json.dumps(obj)
+        sys.stdout.flush()
+        self.socket.send("FOM " + json.dumps(obj))
 
 
-        #if data:
-            #self.send(data)
-
-
-
-class DataServer(asyncore.dispatcher):
-
-    def __init__(self, host, port,dg):
-        asyncore.dispatcher.__init__(self)
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.set_reuse_addr()
-        self.bind((host, port))
-        self.dg = dg
-        self.listen(5)
-
-    def handle_accept(self):
-        pair = self.accept()
-        if pair is not None:
-            sock, addr = pair
-            print 'Incoming connection from %s' % repr(addr)
-            handler = Handler(sock,self.dg)
-
-dg = DataGenerator(input_params)
-dg.daemon = True
-dg.start()
-
-
-
-server = DataServer('localhost', 8080,dg)
-asyncore.loop()
-
-dg.join()
+dg = DataGenerator(input_params,socket)
+dg.run()
