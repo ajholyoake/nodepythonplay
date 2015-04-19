@@ -7,55 +7,28 @@
 We then emit this data out on websockets to the browser for display using d3
 """
 
-"""Web Server Section"""
-
-from flask import Flask,send_from_directory
+from flask import Flask
 from flask.ext.socketio import SocketIO,emit
 
-app = Flask(__name__,static_url_path='',static_path='/front_end')
+app = Flask(__name__,static_url_path='',static_folder='front_end')
 app.config['SECRET_KEY']='staplesandhorsesandthat'
-app.config['debug'] = True
+app.config['Debug'] = True
+app.debug = True
 socketio=SocketIO(app)
-
-
-@app.route('/')
-def send_static():
-    return app.send_static_file('index.html')
-
-@socketio.on('my event',namespace='/test')
-def test_message(message):
-    emit('my response',{'data':message['data']})
-
-@socketio.on('my broadcast event', namespace='/test')
-def test_message(message):
-    emit('my response', {'data': message['data']}, broadcast=True)
-
-@socketio.on('connect', namespace='/test')
-def test_connect():
-    emit('my response', {'data': 'Connected'})
-
-@socketio.on('disconnect', namespace='/test')
-def test_disconnect():
-    print('Client disconnected')
-
-
-if __name__ == '__main__':
-    socketio.run(app)
-
-
 
 
 """Processing Section"""
 
 from rtapclientlib import RTAPClient as client
-from threading import Thread, Queue
+from threading import Thread
+from Queue import Queue
 from collections import defaultdict
 
 """Processing Queue"""
 q = Queue() 
 num_worker_threads = 3
 
-data = defaultdict([])
+data = defaultdict(lambda:[])
 
 class Lap:
     def __init__(self,**kwargs):
@@ -77,24 +50,18 @@ def process_degradation(item):
         lap.degradation = lap.lap_time - mintime
 
 
-
-    
-
-
 def worker():
     while True:
         item = q.get()
-        process_degradation(item)
+        #process_degradation(item)
+        emit('my response',item)
         q.task_done()
 
-for i in range(num_worker_threads):
-    t = Thread(target=worker)
-    t.daemon = True
-    t.start()
 
 
 def callback(data):
     q.put(data)
+    socketio.emit('my response',data)
 
 """Block until tasks are done"""
 #q.join()
@@ -102,4 +69,34 @@ def callback(data):
 c = client()
 c.subscribe()
 c.onMessage(callback)
+
+"""Web Server Section"""
+
+
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+@socketio.on('my event')
+def test_message(message):
+    emit('my response',{'data':message['data']})
+
+@socketio.on('my broadcast event')
+def test_message(message):
+    emit('my response', {'data': message['data']}, broadcast=True)
+
+@socketio.on('connect')
+def test_connect():
+    emit('my response', {'data': 'Connected'})
+
+@socketio.on('disconnect')
+def test_disconnect():
+    print('Client disconnected')
+
+
+if __name__ == '__main__':
+    socketio.run(app)
+
+
 
